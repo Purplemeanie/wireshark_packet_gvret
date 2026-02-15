@@ -1,0 +1,5 @@
+# CMakeListsCustom.txt (in the Wireshark source root)
+
+set(CUSTOM_PLUGIN_SRC_DIR
+    plugins/epan/gvret
+)
