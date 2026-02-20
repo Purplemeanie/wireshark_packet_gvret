@@ -18,8 +18,6 @@
  *
  * Upper-layer dispatch:
  *   We convert GVRET frames into SocketCAN-style metadata (can_info_t)
- *   and call socketcan_call_subdissectors() so anything registered on
- *   "can.subdissector" can decode the payload.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -31,7 +29,7 @@
 #include <epan/expert.h>
 
 #include <epan/dissectors/packet-tcp.h>
-#include <epan/dissectors/packet-socketcan.h>   /* can_info_t + socketcan_call_subdissectors */
+#include <epan/dissectors/packet-socketcan.h>
 #include <stdbool.h>
 
 #define GVRET_START_MARKER 0xF1
@@ -40,12 +38,8 @@
 
 static int proto_gvret = -1;
 
-static dissector_table_t can_subdissector_table = NULL;
-static dissector_table_t gvret_canid_table = NULL;
-
 /* Preferences */
 static guint pref_tcp_port = 23;
-static bool pref_use_heuristics_first = true;
 
 /* Header fields */
 static int hf_gvret_start = -1;
@@ -75,6 +69,13 @@ static gint ett_gvret_can = -1;
 static gint ett_gvret_keep = -1;
 
 static dissector_handle_t gvret_handle;
+
+static dissector_handle_t gvret_can_entry_handle = NULL;
+
+/* Preference: when dispatching, try heuristics before Decode-As table matches */
+static bool pref_use_heuristics_first = true;
+
+static dissector_table_t can_subdissector_table = NULL;
 
 static const value_string gvret_cmd_vals[] = {
     { GVRET_CMD_CAN,       "CAN Frame" },
@@ -170,63 +171,84 @@ gvret_dissect_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
             can_id_socketcan = can_id_display;
         }
 
-        proto_item *ti_can = proto_tree_add_item(tree, proto_gvret, tvb, 0, needed, ENC_NA);
-        proto_item_set_text(ti_can,
-            "GVRET CAN%u %s ID=0x%X DLC=%u TS=%u",
+        proto_item *ti_pdu = proto_tree_add_item(tree, proto_gvret, tvb, 0, needed, ENC_NA);
+        proto_item_set_text(ti_pdu,
+            "CAN%u %s ID=0x%X DLC=%u TS=%u",
             bus, is_ext ? "EXT" : "STD", can_id_display, dlc, ts);
 
-        proto_tree *gvret_tree = proto_item_add_subtree(ti_can, ett_gvret);
+        proto_tree *pdu_tree = proto_item_add_subtree(ti_pdu, ett_gvret_can);
 
-        proto_tree_add_item(gvret_tree, hf_gvret_start,  tvb, 0, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(gvret_tree, hf_gvret_cmd,    tvb, 1, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(gvret_tree, hf_gvret_ts,     tvb, 2, 4, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(gvret_tree, hf_gvret_id_raw, tvb, 6, 4, ENC_LITTLE_ENDIAN);
-        proto_tree_add_boolean(gvret_tree, hf_gvret_ext, tvb, 6, 4, is_ext);
-        proto_tree_add_uint(gvret_tree, hf_gvret_id,     tvb, 6, 4, can_id_display);
+        proto_tree_add_item(pdu_tree, hf_gvret_start,  tvb, 0, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(pdu_tree, hf_gvret_cmd,    tvb, 1, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(pdu_tree, hf_gvret_ts,     tvb, 2, 4, ENC_LITTLE_ENDIAN);
+        proto_tree_add_item(pdu_tree, hf_gvret_id_raw, tvb, 6, 4, ENC_LITTLE_ENDIAN);
+        proto_tree_add_boolean(pdu_tree, hf_gvret_ext, tvb, 6, 4, is_ext);
+        proto_tree_add_uint(pdu_tree, hf_gvret_id,     tvb, 6, 4, can_id_display);
 
-        proto_tree_add_item(gvret_tree, hf_gvret_lenbus, tvb, 10, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_uint(gvret_tree, hf_gvret_dlc,    tvb, 10, 1, dlc);
-        proto_tree_add_uint(gvret_tree, hf_gvret_bus,    tvb, 10, 1, bus);
+        proto_tree_add_item(pdu_tree, hf_gvret_lenbus, tvb, 10, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_uint(pdu_tree, hf_gvret_dlc,    tvb, 10, 1, dlc);
+        proto_tree_add_uint(pdu_tree, hf_gvret_bus,    tvb, 10, 1, bus);
 
         if (dlc > 0) {
-            proto_tree_add_item(gvret_tree, hf_gvret_data, tvb, 11, dlc, ENC_NA);
+            proto_tree_add_item(pdu_tree, hf_gvret_data, tvb, 11, dlc, ENC_NA);
         }
-        proto_tree_add_item(gvret_tree, hf_gvret_cksum, tvb, 11 + dlc, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(pdu_tree, hf_gvret_cksum, tvb, 11 + dlc, 1, ENC_BIG_ENDIAN);
 
         col_clear(pinfo->cinfo, COL_INFO);
         col_add_fstr(pinfo->cinfo, COL_INFO,
                      "CAN%u %s ID=0x%X DLC=%u TS=%u",
                      bus, is_ext ? "EXT" : "STD", can_id_display, dlc, ts);
 
-        can_info_t can_info;
-        can_info.id = can_id_socketcan;
-        can_info.len = dlc;
-        can_info.fd = CAN_TYPE_CAN_CLASSIC;
-        can_info.bus_id = bus;
 
-        tvbuff_t *payload_tvb = tvb_new_subset_length(tvb, 11, dlc);
+        /* --- 1) Create CAN layer node using can-hostendian --- */
+        guint8 dlc8 = dlc > 8 ? 8 : dlc;
 
-        bool handled = false;
-        if (gvret_canid_table) {
-            handled = dissector_try_uint_with_data(gvret_canid_table,
-                                                  can_id_display,
-                                                  payload_tvb,
-                                                  pinfo,
-                                                  gvret_tree,
-                                                  false,
-                                                  NULL);
+        guint8 *cf = (guint8 *)g_malloc0(16);
+        const guint32 can_id_wire = can_id_socketcan;   /* includes CAN_EFF_FLAG if ext */
+
+        /* host-endian on Apple Silicon == little-endian */
+        cf[0] = (guint8)(can_id_wire & 0xFF);
+        cf[1] = (guint8)((can_id_wire >> 8) & 0xFF);
+        cf[2] = (guint8)((can_id_wire >> 16) & 0xFF);
+        cf[3] = (guint8)((can_id_wire >> 24) & 0xFF);
+        cf[4] = dlc8;
+
+        if (dlc8 > 0) {
+            tvb_memcpy(tvb, cf + 8, 11, dlc8);
         }
 
-        if (!handled && can_subdissector_table) {
+        tvbuff_t *can_tvb = tvb_new_real_data(cf, 16, 16);
+        tvb_set_free_cb(can_tvb, g_free);
+        add_new_data_source(pinfo, can_tvb, "Reassembled CAN frame");
+
+        if (gvret_can_entry_handle) {
+            call_dissector(gvret_can_entry_handle, can_tvb, pinfo, pdu_tree);
+        } else {
+            proto_tree_add_expert_format(pdu_tree, pinfo, &ei_gvret_desync,
+                                        tvb, 0, 0, "No CAN dissector handle found (can-hostendian/can-bigendian)");
+        }
+
+
+        /* Dispatch payload for ISO-TP/J1939/etc */
+        if (can_subdissector_table) {
+            tvbuff_t *payload_tvb = tvb_new_subset_length(tvb, 11, dlc8);
+
+            can_info_t can_info;
+            memset(&can_info, 0, sizeof(can_info));
+            can_info.id     = can_id_socketcan;     /* includes CAN_EFF_FLAG if ext */
+            can_info.len    = dlc8;
+            can_info.fd     = CAN_TYPE_CAN_CLASSIC;
+            can_info.bus_id = bus;
+
             dissector_try_payload_with_data(can_subdissector_table,
                                             payload_tvb,
                                             pinfo,
-                                            gvret_tree,
-                                            false,
+                                            pdu_tree,
+                                            pref_use_heuristics_first,
                                             &can_info);
         }
 
-        return needed;
+        return needed; 
     }
 
     /* ---- Non-CAN commands: fall back to the “outer” generic node ---- */
@@ -259,25 +281,38 @@ gvret_dissect_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
 static int
 dissect_gvret(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
-    /* Sync to 0xF1, because TCP may begin mid-stream */
+    /* TCP stream may begin mid-frame — sync to 0xF1 marker */
     const gint len = tvb_reported_length(tvb);
     gint f1pos = tvb_find_uint8(tvb, 0, len, GVRET_START_MARKER);
+
     if (f1pos < 0) {
+        /* No start marker found in this segment */
         return 0;
     }
 
+    /* If we skipped bytes before the first marker, show expert info */
     if (f1pos > 0 && tree) {
-        /* Report that we skipped some bytes before the first marker */
-        proto_item *ti = proto_tree_add_item(tree, proto_gvret, tvb, 0, f1pos, ENC_NA);
-        expert_add_info(pinfo, ti, &ei_gvret_desync);
+        proto_item *ti_skip =
+            proto_tree_add_item(tree, proto_gvret, tvb, 0, f1pos, ENC_NA);
+        expert_add_info(pinfo, ti_skip, &ei_gvret_desync);
     }
 
+    /* Create a subset starting at the marker */
     tvbuff_t *tvb_sync = tvb_new_subset_remaining(tvb, f1pos);
 
-    /* Desegment GVRET PDUs on TCP stream */
-    tcp_dissect_pdus(tvb_sync, pinfo, tree,
+    proto_tree *gvret_root_tree = NULL;
+
+    if (tree) {
+        proto_item *ti_root =
+            proto_tree_add_item(tree, proto_gvret, tvb_sync, 0, -1, ENC_NA);
+        proto_item_set_text(ti_root, "GVRET");
+        gvret_root_tree = proto_item_add_subtree(ti_root, ett_gvret);
+    }
+
+    tcp_dissect_pdus(tvb_sync, pinfo,
+                     gvret_root_tree ? gvret_root_tree : tree,
                      true,            /* desegment */
-                     2,               /* fixed header length to get cmd (F1 + cmd) */
+                     2,               /* minimum header length (F1 + cmd) */
                      gvret_get_pdu_len,
                      gvret_dissect_pdu,
                      data);
@@ -360,38 +395,44 @@ proto_register_gvret(void)
         "TCP port for GVRET binary stream",
         10, &pref_tcp_port);
 
+
     prefs_register_bool_preference(gvret_module, "use_heuristics_first",
         "Try heuristic CAN subdissectors first",
         "When calling SocketCAN subdissectors, try heuristic dissectors before Decode-As table matches",
         &pref_use_heuristics_first);
-        gvret_canid_table = register_dissector_table(
-            "gvret.canid",          /* short name */
-            "GVRET CAN ID",         /* display name */
-            proto_gvret,
-            FT_UINT32,              /* key type */
-            BASE_HEX
-        );
 }
 
 void
 proto_reg_handoff_gvret(void)
 {
     static gboolean initialized = FALSE;
-    static guint saved_port;
+    static guint saved_port = 0;
 
     if (!initialized) {
         gvret_handle = create_dissector_handle(dissect_gvret, proto_gvret);
-        initialized = true;
-        saved_port = 0;
-    } else {
-        if (saved_port != 0) {
-            dissector_delete_uint("tcp.port", saved_port, gvret_handle);
+        initialized = TRUE;
+    } else if (saved_port != 0 && saved_port != pref_tcp_port) {
+        dissector_delete_uint("tcp.port", saved_port, gvret_handle);
+    }
+
+    /* Choose CAN dissector variant based on host endianness */
+    if (!gvret_can_entry_handle) {
+#if G_BYTE_ORDER == G_BIG_ENDIAN
+        gvret_can_entry_handle = find_dissector("can-bigendian");
+#else
+        gvret_can_entry_handle = find_dissector("can-hostendian");
+#endif
+        if (!gvret_can_entry_handle) {
+            gvret_can_entry_handle = find_dissector("can-hostendian");
+            if (!gvret_can_entry_handle)
+                gvret_can_entry_handle = find_dissector("can-bigendian");
         }
     }
 
     if (!can_subdissector_table) {
-       can_subdissector_table = find_dissector_table("can.subdissector");
+        can_subdissector_table = find_dissector_table("can.subdissector");
     }
+
     dissector_add_uint("tcp.port", pref_tcp_port, gvret_handle);
     saved_port = pref_tcp_port;
 }
