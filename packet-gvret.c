@@ -47,11 +47,11 @@ static int hf_gvret_cmd   = -1;
 
 static int hf_gvret_ts    = -1;
 
-static int hf_gvret_id_raw = -1;
+//static int hf_gvret_id_raw = -1;
 static int hf_gvret_id     = -1;
 static int hf_gvret_ext    = -1;
 
-static int hf_gvret_lenbus = -1;
+//static int hf_gvret_lenbus = -1;
 static int hf_gvret_dlc    = -1;
 static int hf_gvret_bus    = -1;
 
@@ -181,11 +181,11 @@ gvret_dissect_pdu(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *dat
         proto_tree_add_item(pdu_tree, hf_gvret_start,  tvb, 0, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(pdu_tree, hf_gvret_cmd,    tvb, 1, 1, ENC_BIG_ENDIAN);
         proto_tree_add_item(pdu_tree, hf_gvret_ts,     tvb, 2, 4, ENC_LITTLE_ENDIAN);
-        proto_tree_add_item(pdu_tree, hf_gvret_id_raw, tvb, 6, 4, ENC_LITTLE_ENDIAN);
+        //proto_tree_add_item(pdu_tree, hf_gvret_id_raw, tvb, 6, 4, ENC_LITTLE_ENDIAN);
         proto_tree_add_boolean(pdu_tree, hf_gvret_ext, tvb, 6, 4, is_ext);
         proto_tree_add_uint(pdu_tree, hf_gvret_id,     tvb, 6, 4, can_id_display);
 
-        proto_tree_add_item(pdu_tree, hf_gvret_lenbus, tvb, 10, 1, ENC_BIG_ENDIAN);
+        //proto_tree_add_item(pdu_tree, hf_gvret_lenbus, tvb, 10, 1, ENC_BIG_ENDIAN);
         proto_tree_add_uint(pdu_tree, hf_gvret_dlc,    tvb, 10, 1, dlc);
         proto_tree_add_uint(pdu_tree, hf_gvret_bus,    tvb, 10, 1, bus);
 
@@ -333,8 +333,8 @@ proto_register_gvret(void)
         { &hf_gvret_ts,
           { "Timestamp (us)", "gvret.ts", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 
-        { &hf_gvret_id_raw,
-          { "CAN ID (raw)", "gvret.can.id_raw", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+//        { &hf_gvret_id_raw,
+//          { "CAN ID (raw)", "gvret.can.id_raw", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
         { &hf_gvret_ext,
           { "Extended ID", "gvret.can.ext", FT_BOOLEAN, BASE_NONE, NULL, 0x0, NULL, HFILL }},
@@ -342,8 +342,8 @@ proto_register_gvret(void)
         { &hf_gvret_id,
           { "CAN ID", "gvret.can.id", FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
-        { &hf_gvret_lenbus,
-          { "Len+Bus (packed)", "gvret.can.lenbus", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
+//        { &hf_gvret_lenbus,
+//          { "Len+Bus (packed)", "gvret.can.lenbus", FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }},
 
         { &hf_gvret_dlc,
           { "DLC", "gvret.can.dlc", FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
