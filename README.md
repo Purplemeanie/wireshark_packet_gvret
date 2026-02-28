@@ -4,11 +4,11 @@ This plugin is a **GVRET transport dissector** that reconstructs and exposes emb
 
 ### Tested on
 
--------------
-| Wireshark | 4.7.0 |
-| MacOS | 26.1 |
-| Ubuntu | 6.17.0 |
--------------
+| Name      | Version |
+|-----------|---------|
+| Wireshark | 4.7.0   |
+| MacOS     | 26.1.   |
+| Ubuntu    | 6.17.0  |
 
 This plugin has been developed and tested on Apple Silicon with MacOS26. It may or may not work on other OS'es.
 
