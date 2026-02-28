@@ -2,6 +2,14 @@
 
 This plugin is a **GVRET transport dissector** that reconstructs and exposes embedded CAN frames as **native Wireshark CAN packets**, then dispatches them through Wireshark’s standard CAN dissector tables. It is designed to make GVRET traffic behave like a normal CAN capture inside Wireshark, enabling reuse of the existing CAN protocol ecosystem (ISO-TP, J1939, UDS, custom signal decoders, etc.).
 
+### Tested on
+
+-------------
+| Wireshark | 4.7.0 |
+| MacOS | 26.1 |
+| Ubuntu | 6.17.0 |
+-------------
+
 This plugin has been developed and tested on Apple Silicon with MacOS26. It may or may not work on other OS'es.
 
 ### What This Plugin Decodes
