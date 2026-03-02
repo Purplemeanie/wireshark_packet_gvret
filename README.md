@@ -166,7 +166,7 @@ Now you've built a full version of Wireshark, perhaps the easiest thing to do is
 /Applications/Wireshark.app/Contents/PlugIns/wireshark/4-7/epan/gvret.so
 ```
 
-The downside of this approach is that if you were to install a newer version of Wireshark from a downloaded DMG, then it would overwrite the gvret.so plugin and it would no longer be loaded and disect any GVRET messages.
+The downside of this approach is that if you were to install a newer version of Wireshark from a downloaded DMG, then it would overwrite the gvret.so plugin and it would no longer be loaded and dissect any GVRET messages.
 
 To build and install a complete installation of Wireshark including the plugin, you either need to sign the install (not covered here), or remove the security lockdown of the App once installed (this may be a good reason why you'd want to go down the personal plugins directory route):
 
