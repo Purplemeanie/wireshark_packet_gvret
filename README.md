@@ -100,6 +100,8 @@ Reconstructing true Wireshark CAN frames (instead of decoding payloads privately
 - **Multiple decoders at once** (signal decoder + ISO-TP + J1939 in the same capture)
 - A clean mental model: **GVRET is the transport**, Wireshark’s CAN stack does the rest
 
+Both gvret.<param> and can.<param> syntax is supported for filtering packets.
+
 ## Building the Plugin
 
 There's a couple of ways of building the plugin:
